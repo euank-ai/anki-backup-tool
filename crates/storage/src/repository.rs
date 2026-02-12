@@ -1,8 +1,8 @@
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result};
-use anki_backup_core::{BackupEntry, BackupSkipReason, BackupStatus, NewBackupEntry};
+use anki_backup_core::{BackupEntry, BackupStatus, NewBackupEntry};
 use chrono::{DateTime, SecondsFormat, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -133,7 +133,7 @@ mod tests {
             RunOnceOutcome::Created(_) => panic!("second run must skip"),
             RunOnceOutcome::Skipped(entry) => {
                 assert_eq!(entry.status, BackupStatus::Skipped);
-                assert_eq!(entry.skip_reason, Some(BackupSkipReason::Unchanged));
+                assert_eq!(entry.skip_reason, Some(anki_backup_core::BackupSkipReason::Unchanged));
             }
         }
     }
@@ -160,6 +160,6 @@ mod tests {
             .with_timezone(&Utc);
         let dir = format_timestamp_dir(now);
         assert_eq!(dir, "2026-02-13T01-00-00Z");
-        assert!(!Path::new(&dir).has_root());
+        assert!(!std::path::Path::new(&dir).has_root());
     }
 }
