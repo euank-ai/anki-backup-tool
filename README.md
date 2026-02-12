@@ -1,29 +1,53 @@
 # anki-backup-tool
 
-Headless Anki backup daemon (Rust workspace), implemented milestone-by-milestone.
+Linux-first headless daemon for change-aware Anki backups with AnkiWeb sync integration, API, and web UI.
 
-## Current status (M1)
+## Features
 
-Implemented:
-- Rust workspace scaffold (`core`, `storage`, `daemon`)
-- One-shot backup flow (`run-once`)
-- Timestamped backup directory creation
-- Content hash compute/store
-- Unchanged backup skip behavior
-- `GET /api/v1/healthz` endpoint
-- Unit tests for hash + skip behavior
+- Headless daemon (no desktop UI dependency)
+- Real AnkiWeb sync integration path via configurable sync command
+- Hourly change-aware backups (skip when unchanged)
+- JSON API + simple web UI for list/detail/download/rollback
+- Backup stats extraction from collection (`cards`, `decks`, `notes`, `revlog`)
+- Atomic rollback pointer updates
 
-## Run
+## Quick start
 
 ```bash
-# one-shot backup run
-cargo run -p anki-backup-daemon -- run-once
+cp config.example.toml /etc/anki-backup-tool/config.toml
 
-# start API server (health check)
-cargo run -p anki-backup-daemon
+# one-shot backup (sync + backup)
+ANKIWEB_USERNAME=... \
+ANKIWEB_PASSWORD=... \
+ANKI_COLLECTION_PATH=/var/lib/anki/collection.anki2 \
+ANKI_SYNC_COMMAND='python3 /opt/anki-sync/run_sync.py' \
+/run/current-system/sw/bin/cargo run -p anki-backup-daemon -- run-once
+
+# daemon mode (API/UI + hourly scheduler)
+/run/current-system/sw/bin/cargo run -p anki-backup-daemon
 ```
 
-Environment variables:
+## Environment
+
 - `ANKI_BACKUP_ROOT` (default `./data`)
 - `ANKI_BACKUP_LISTEN` (default `127.0.0.1:8088`)
-- `ANKI_BACKUP_COLLECTION_SOURCE` (optional content source for M1 run-once)
+- `ANKIWEB_USERNAME` / `ANKIWEB_PASSWORD`
+- `ANKI_COLLECTION_PATH` (path to synchronized `collection.anki2`)
+- `ANKI_SYNC_COMMAND` (real sync hook; invoked before backup)
+- `ANKI_BACKUP_CSRF_TOKEN` (optional UI/API rollback guard token)
+
+## Endpoints
+
+- `GET /` list backups
+- `GET /backups/:id` backup detail
+- `POST /backups/:id/rollback`
+- `GET /backups/:id/download` (tar stream)
+
+JSON API:
+- `GET /api/v1/healthz`
+- `GET /api/v1/backups`
+- `GET /api/v1/backups/:id`
+- `POST /api/v1/backups/:id/rollback`
+- `GET /api/v1/backups/:id/download`
+
+See docs in `docs/` for architecture and operations.

@@ -8,10 +8,17 @@ authors.workspace = true
 [dependencies]
 anki-backup-core = { path = "../core" }
 anki-backup-storage = { path = "../storage" }
+anki-backup-sync = { path = "../sync" }
 anyhow.workspace = true
 axum.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+tar.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

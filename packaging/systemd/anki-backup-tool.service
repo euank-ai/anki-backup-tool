@@ -1,0 +1,21 @@
+[Unit]
+Description=Anki Backup Tool Daemon
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=anki-backup
+Group=anki-backup
+EnvironmentFile=/etc/anki-backup-tool/env
+ExecStart=/usr/local/bin/anki-backup-daemon
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/anki-backup-tool
+
+[Install]
+WantedBy=multi-user.target

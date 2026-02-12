@@ -9,9 +9,10 @@ authors.workspace = true
 anki-backup-core = { path = "../core" }
 anyhow.workspace = true
 chrono.workspace = true
+rusqlite.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
 
 [dev-dependencies]
-tempfile = "3.19"
+tempfile.workspace = true
