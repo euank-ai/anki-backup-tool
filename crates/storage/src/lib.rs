@@ -1,3 +1,3 @@
 mod repository;
 
-pub use repository::{BackupRepository, RunOnceOutcome};
+pub use repository::{BackupPayload, BackupRepository, RunOnceOutcome};

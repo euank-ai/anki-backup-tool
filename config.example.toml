@@ -1,0 +1,19 @@
+[server]
+listen = "127.0.0.1:8088"
+
+[schedule]
+cron = "0 * * * *"
+
+[storage]
+root = "/var/lib/anki-backup-tool"
+retention_days = 90
+
+[ankiweb]
+username = "your-ankiweb-username"
+password = "your-ankiweb-password"
+collection_path = "/var/lib/anki/collection.anki2"
+sync_command = "python3 /opt/anki-sync/run_sync.py"
+
+[security]
+auth_enabled = true
+csrf_token = "replace-me"
