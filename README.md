@@ -1,15 +1,29 @@
 # anki-backup-tool
 
-Specification and implementation plan for a headless AnkiWeb backup daemon.
+Headless Anki backup daemon (Rust workspace), implemented milestone-by-milestone.
 
-This repository is intended as a high-quality build target for Codex (or human contributors), with:
+## Current status (M1)
 
-- Product requirements
-- Technical architecture
-- API/UI requirements
-- Testing requirements
-- Delivery milestones
+Implemented:
+- Rust workspace scaffold (`core`, `storage`, `daemon`)
+- One-shot backup flow (`run-once`)
+- Timestamped backup directory creation
+- Content hash compute/store
+- Unchanged backup skip behavior
+- `GET /api/v1/healthz` endpoint
+- Unit tests for hash + skip behavior
 
-## Primary artifact
+## Run
 
-See `CODEX_IMPLEMENTATION_INSTRUCTIONS.md`.
+```bash
+# one-shot backup run
+cargo run -p anki-backup-daemon -- run-once
+
+# start API server (health check)
+cargo run -p anki-backup-daemon
+```
+
+Environment variables:
+- `ANKI_BACKUP_ROOT` (default `./data`)
+- `ANKI_BACKUP_LISTEN` (default `127.0.0.1:8088`)
+- `ANKI_BACKUP_COLLECTION_SOURCE` (optional content source for M1 run-once)
