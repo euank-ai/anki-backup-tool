@@ -9,7 +9,7 @@ use anki_backup_core::{content_hash, BackupStatus};
 use anki_backup_storage::{BackupPayload, BackupRepository, RunOnceOutcome};
 use anki_backup_sync::{sync_collection, SyncConfig};
 use axum::extract::{Path, State};
-use axum::http::{header, StatusCode};
+use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
@@ -25,6 +25,7 @@ struct AppState {
     repo: BackupRepository,
     rollback_gate: Arc<Mutex<Option<chrono::DateTime<Utc>>>>,
     csrf_token: Option<String>,
+    api_token: Option<String>,
 }
 
 #[tokio::main]
@@ -63,9 +64,15 @@ async fn run_service(repo: BackupRepository, listen: &str) -> Result<()> {
         repo: repo.clone(),
         rollback_gate: Arc::new(Mutex::new(None)),
         csrf_token: env::var("ANKI_BACKUP_CSRF_TOKEN").ok(),
+        api_token: env::var("ANKI_BACKUP_API_TOKEN").ok(),
     };
 
-    tokio::spawn(scheduler_loop(repo, sync_config_from_env()));
+    let retention_days = env::var("ANKI_BACKUP_RETENTION_DAYS")
+        .ok()
+        .and_then(|v| v.parse::<i64>().ok())
+        .unwrap_or(90);
+
+    tokio::spawn(scheduler_loop(repo, sync_config_from_env(), retention_days));
 
     let addr: SocketAddr = listen.parse().with_context(|| format!("invalid listen address: {listen}"))?;
     let app = Router::new()
@@ -86,7 +93,7 @@ async fn run_service(repo: BackupRepository, listen: &str) -> Result<()> {
     Ok(())
 }
 
-async fn scheduler_loop(repo: BackupRepository, config: SyncConfig) {
+async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_days: i64) {
     loop {
         let now = Utc::now();
         let secs_to_next_hour = 3600 - (now.minute() * 60 + now.second()) as u64;
@@ -104,6 +111,12 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig) {
                     Ok(RunOnceOutcome::Created(entry)) => info!(backup_id = %entry.id, "scheduled backup created"),
                     Ok(RunOnceOutcome::Skipped(_)) => info!("scheduled backup skipped (unchanged)"),
                     Err(e) => error!(error = %e, "scheduled backup failed"),
+                }
+
+                match repo.prune_created_older_than_days(retention_days) {
+                    Ok(removed) if removed > 0 => info!(removed, retention_days, "retention pruning removed old backups"),
+                    Ok(_) => {}
+                    Err(e) => error!(error = %e, retention_days, "retention pruning failed"),
                 }
             }
             Err(e) => error!(error = %e, "ankiweb sync failed"),
@@ -129,7 +142,27 @@ async fn healthz() -> Json<HealthzResponse> {
     Json(HealthzResponse { status: "ok" })
 }
 
-async fn api_list_backups(State(state): State<AppState>) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+fn require_api_auth(state: &AppState, headers: &HeaderMap) -> Result<(), StatusCode> {
+    let Some(expected) = &state.api_token else {
+        return Ok(());
+    };
+
+    let provided = headers
+        .get(header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+
+    match provided {
+        Some(token) if token == expected => Ok(()),
+        _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+async fn api_list_backups(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<Vec<serde_json::Value>>, StatusCode> {
+    require_api_auth(&state, &headers)?;
     let rows = state.repo.list_backups().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let json = rows
         .into_iter()
@@ -149,7 +182,9 @@ async fn api_list_backups(State(state): State<AppState>) -> Result<Json<Vec<serd
 async fn api_backup_detail(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
+    require_api_auth(&state, &headers)?;
     let id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let backup = state
         .repo
@@ -162,9 +197,17 @@ async fn api_backup_detail(
 async fn rollback_backup(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, StatusCode> {
-    if state.csrf_token.is_some() {
-        // token enforcement can be wired via middleware/header parsing; kept explicit but optional in v1.
+    require_api_auth(&state, &headers)?;
+    if let Some(expected_csrf) = &state.csrf_token {
+        let provided = headers
+            .get("x-csrf-token")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        if provided != expected_csrf {
+            return Err(StatusCode::FORBIDDEN);
+        }
     }
     let mut gate = state.rollback_gate.lock().await;
     if let Some(last) = *gate {
@@ -182,7 +225,9 @@ async fn rollback_backup(
 async fn download_backup(
     Path(id): Path<String>,
     State(state): State<AppState>,
+    headers: HeaderMap,
 ) -> Result<Response, StatusCode> {
+    require_api_auth(&state, &headers)?;
     let id = Uuid::parse_str(&id).map_err(|_| StatusCode::BAD_REQUEST)?;
     let backup = state
         .repo
