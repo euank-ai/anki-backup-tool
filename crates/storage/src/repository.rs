@@ -169,6 +169,36 @@ impl BackupRepository {
             .join("collection.anki2")
     }
 
+    pub fn prune_created_older_than_days(&self, retention_days: i64) -> Result<usize> {
+        if retention_days <= 0 {
+            return Ok(0);
+        }
+
+        let cutoff = Utc::now() - chrono::Duration::days(retention_days);
+        let conn = self.connect()?;
+
+        let mut stmt = conn.prepare(
+            "SELECT id, timestamp_dir FROM backups WHERE status = 'created' AND created_at < ?1",
+        )?;
+        let doomed = stmt
+            .query_map([cutoff.to_rfc3339()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+
+        for (_, timestamp_dir) in &doomed {
+            let dir = self.root.join("backups").join(timestamp_dir);
+            if dir.exists() {
+                fs::remove_dir_all(&dir)
+                    .with_context(|| format!("remove old backup dir: {}", dir.display()))?;
+            }
+        }
+
+        for (id, _) in &doomed {
+            conn.execute("DELETE FROM backups WHERE id = ?1", [id])?;
+        }
+
+        Ok(doomed.len())
+    }
+
     fn write_current_pointer(&self, backup: &BackupEntry) -> Result<()> {
         let ptr = serde_json::json!({
             "backup_id": backup.id,
@@ -403,5 +433,37 @@ mod tests {
             )
             .unwrap();
         assert!(matches!(second, RunOnceOutcome::Skipped(_)));
+    }
+
+    #[test]
+    fn prune_retention_deletes_old_created_backups() {
+        let tmp = tempfile::tempdir().unwrap();
+        let repo = BackupRepository::new(tmp.path()).unwrap();
+        let payload = sample_collection();
+        let created = match repo
+            .run_once(
+                BackupPayload { bytes: payload, source_revision: None, sync_duration_ms: Some(1) },
+                "hash1".to_string(),
+            )
+            .unwrap()
+        {
+            RunOnceOutcome::Created(e) => e,
+            RunOnceOutcome::Skipped(_) => panic!("expected created backup"),
+        };
+
+        let conn = repo.connect().unwrap();
+        let old = (Utc::now() - chrono::Duration::days(400)).to_rfc3339();
+        conn.execute(
+            "UPDATE backups SET created_at = ?1 WHERE id = ?2",
+            params![old, created.id.to_string()],
+        )
+        .unwrap();
+
+        let removed = repo.prune_created_older_than_days(90).unwrap();
+        assert_eq!(removed, 1);
+
+        let remaining = repo.list_backups().unwrap();
+        assert!(remaining.is_empty());
+        assert!(!repo.root.join("backups").join(created.timestamp_dir).exists());
     }
 }
