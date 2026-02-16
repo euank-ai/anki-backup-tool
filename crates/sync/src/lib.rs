@@ -53,7 +53,9 @@ pub fn sync_collection(config: &SyncConfig) -> Result<SyncResult> {
         if let Some(p) = &config.password {
             c.env("ANKIWEB_PASSWORD", p);
         }
-        let out = c.output().with_context(|| format!("failed to run sync command: {cmd}"))?;
+        let out = c
+            .output()
+            .with_context(|| format!("failed to run sync command: {cmd}"))?;
         if !out.status.success() {
             return Err(anyhow!(
                 "sync command failed ({}): {}",

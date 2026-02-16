@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{anyhow, Context, Result};
 use anki_backup_core::{
     BackupEntry, BackupSkipReason, BackupStats, BackupStatus, DeckStats, NewBackupEntry,
 };
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde_json::Value;
@@ -45,14 +45,16 @@ impl BackupRepository {
 
         if let Some(last_hash) = self.last_created_hash(&conn)? {
             if last_hash == content_hash {
-                let skipped = self.insert_entry(&conn, NewBackupEntry::skipped_unchanged(now, content_hash))?;
+                let skipped =
+                    self.insert_entry(&conn, NewBackupEntry::skipped_unchanged(now, content_hash))?;
                 return Ok(RunOnceOutcome::Skipped(skipped));
             }
         }
 
         let timestamp_dir = format_timestamp_dir(now);
         let backup_dir = self.root.join("backups").join(&timestamp_dir);
-        fs::create_dir_all(&backup_dir).with_context(|| format!("create backup dir: {}", backup_dir.display()))?;
+        fs::create_dir_all(&backup_dir)
+            .with_context(|| format!("create backup dir: {}", backup_dir.display()))?;
 
         let payload_path = backup_dir.join("collection.anki2");
         fs::write(&payload_path, &payload.bytes)
@@ -109,7 +111,8 @@ impl BackupRepository {
             })
         })?;
 
-        rows.collect::<std::result::Result<Vec<_>, _>>().map_err(Into::into)
+        rows.collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(Into::into)
     }
 
     pub fn get_backup(&self, id: Uuid) -> Result<Option<BackupEntry>> {
@@ -156,7 +159,11 @@ impl BackupRepository {
         let conn = self.connect()?;
         conn.execute(
             "INSERT INTO rollback_events (id, backup_id, created_at) VALUES (?1, ?2, ?3)",
-            params![Uuid::new_v4().to_string(), backup.id.to_string(), Utc::now().to_rfc3339()],
+            params![
+                Uuid::new_v4().to_string(),
+                backup.id.to_string(),
+                Utc::now().to_rfc3339()
+            ],
         )?;
 
         Ok(backup)
@@ -181,7 +188,9 @@ impl BackupRepository {
             "SELECT id, timestamp_dir FROM backups WHERE status = 'created' AND created_at < ?1",
         )?;
         let doomed = stmt
-            .query_map([cutoff.to_rfc3339()], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?
+            .query_map([cutoff.to_rfc3339()], |r| {
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+            })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
         for (_, timestamp_dir) in &doomed {
@@ -264,15 +273,25 @@ impl BackupRepository {
                 entry.source_revision,
                 entry.sync_duration_ms,
                 entry.size_bytes,
-                entry.stats.as_ref().map(serde_json::to_string).transpose()?
+                entry
+                    .stats
+                    .as_ref()
+                    .map(serde_json::to_string)
+                    .transpose()?
             ],
         )?;
 
         if matches!(entry.status, BackupStatus::Created) {
-            let metadata_json_path = self.root.join("backups").join(&entry.timestamp_dir).join("metadata.json");
-            let serialized = serde_json::to_string_pretty(&entry).context("serialize backup metadata")?;
-            fs::write(&metadata_json_path, serialized)
-                .with_context(|| format!("write backup metadata: {}", metadata_json_path.display()))?;
+            let metadata_json_path = self
+                .root
+                .join("backups")
+                .join(&entry.timestamp_dir)
+                .join("metadata.json");
+            let serialized =
+                serde_json::to_string_pretty(&entry).context("serialize backup metadata")?;
+            fs::write(&metadata_json_path, serialized).with_context(|| {
+                format!("write backup metadata: {}", metadata_json_path.display())
+            })?;
         }
 
         Ok(entry)
@@ -282,7 +301,9 @@ impl BackupRepository {
         let mut stmt = conn.prepare(
             "SELECT content_hash FROM backups WHERE status = 'created' ORDER BY created_at DESC LIMIT 1",
         )?;
-        let hash = stmt.query_row([], |row| row.get::<_, String>(0)).optional()?;
+        let hash = stmt
+            .query_row([], |row| row.get::<_, String>(0))
+            .optional()?;
         Ok(hash)
     }
 
@@ -293,7 +314,8 @@ impl BackupRepository {
 }
 
 fn extract_stats(path: &Path) -> Result<BackupStats> {
-    let conn = Connection::open(path).with_context(|| format!("open collection db: {}", path.display()))?;
+    let conn = Connection::open(path)
+        .with_context(|| format!("open collection db: {}", path.display()))?;
     let total_cards: i64 = conn.query_row("SELECT COUNT(*) FROM cards", [], |r| r.get(0))?;
     let total_notes: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))?;
     let total_revlog: i64 = conn.query_row("SELECT COUNT(*) FROM revlog", [], |r| r.get(0))?;
@@ -331,7 +353,9 @@ fn extract_stats(path: &Path) -> Result<BackupStats> {
 fn parse_deck_names(raw: &str) -> Result<HashMap<i64, String>> {
     let v: Value = serde_json::from_str(raw).context("parse col.decks json")?;
     let mut out = HashMap::new();
-    let obj = v.as_object().ok_or_else(|| anyhow!("decks json must be object"))?;
+    let obj = v
+        .as_object()
+        .ok_or_else(|| anyhow!("decks json must be object"))?;
     for (id, deck_value) in obj {
         if let (Ok(parsed_id), Some(name)) = (
             id.parse::<i64>(),
@@ -386,7 +410,8 @@ fn to_sql_err(e: serde_json::Error) -> rusqlite::Error {
 }
 
 fn format_timestamp_dir(now: DateTime<Utc>) -> String {
-    now.to_rfc3339_opts(SecondsFormat::Secs, true).replace(':', "-")
+    now.to_rfc3339_opts(SecondsFormat::Secs, true)
+        .replace(':', "-")
 }
 
 #[cfg(test)]
@@ -420,7 +445,11 @@ mod tests {
 
         let first = repo
             .run_once(
-                BackupPayload { bytes: payload.clone(), source_revision: None, sync_duration_ms: Some(1) },
+                BackupPayload {
+                    bytes: payload.clone(),
+                    source_revision: None,
+                    sync_duration_ms: Some(1),
+                },
                 hash.clone(),
             )
             .unwrap();
@@ -428,7 +457,11 @@ mod tests {
 
         let second = repo
             .run_once(
-                BackupPayload { bytes: payload, source_revision: None, sync_duration_ms: Some(1) },
+                BackupPayload {
+                    bytes: payload,
+                    source_revision: None,
+                    sync_duration_ms: Some(1),
+                },
                 hash,
             )
             .unwrap();
@@ -442,7 +475,11 @@ mod tests {
         let payload = sample_collection();
         let created = match repo
             .run_once(
-                BackupPayload { bytes: payload, source_revision: None, sync_duration_ms: Some(1) },
+                BackupPayload {
+                    bytes: payload,
+                    source_revision: None,
+                    sync_duration_ms: Some(1),
+                },
                 "hash1".to_string(),
             )
             .unwrap()
@@ -464,6 +501,10 @@ mod tests {
 
         let remaining = repo.list_backups().unwrap();
         assert!(remaining.is_empty());
-        assert!(!repo.root.join("backups").join(created.timestamp_dir).exists());
+        assert!(!repo
+            .root
+            .join("backups")
+            .join(created.timestamp_dir)
+            .exists());
     }
 }

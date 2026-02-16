@@ -1,18 +1,17 @@
 use std::env;
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
 use anki_backup_core::content_hash;
+use anki_backup_daemon::{build_router, AppState};
 use anki_backup_storage::{BackupPayload, BackupRepository, RunOnceOutcome};
 use anki_backup_sync::{sync_collection, SyncConfig};
+use anyhow::{Context, Result};
 use chrono::{Timelike, Utc};
-use std::net::SocketAddr;
 use tokio::sync::Mutex;
 use tokio::time::{sleep, Duration};
 use tracing::{error, info, Level};
-
-use anki_backup_daemon::{AppState, build_router};
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -40,7 +39,9 @@ fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()> {
 
     match repo.run_once(payload, hash)? {
         RunOnceOutcome::Created(entry) => info!(backup_id = %entry.id, "backup created"),
-        RunOnceOutcome::Skipped(entry) => info!(backup_id = %entry.id, "backup skipped (unchanged)"),
+        RunOnceOutcome::Skipped(entry) => {
+            info!(backup_id = %entry.id, "backup skipped (unchanged)")
+        }
     }
     Ok(())
 }
@@ -97,7 +98,10 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_da
 
                 match repo.prune_created_older_than_days(retention_days) {
                     Ok(removed) if removed > 0 => {
-                        info!(removed, retention_days, "retention pruning removed old backups")
+                        info!(
+                            removed,
+                            retention_days, "retention pruning removed old backups"
+                        )
                     }
                     Ok(_) => {}
                     Err(e) => error!(error = %e, retention_days, "retention pruning failed"),
