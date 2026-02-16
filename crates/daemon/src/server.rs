@@ -211,14 +211,13 @@ async fn download_backup(
     }
 
     // Compress with zstd
-    let compressed =
-        zstd::encode_all(Cursor::new(&tar_data), 3).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let compressed = zstd::encode_all(Cursor::new(&tar_data), 3)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
     let mut response = compressed.into_response();
-    response.headers_mut().insert(
-        header::CONTENT_TYPE,
-        "application/zstd".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert(header::CONTENT_TYPE, "application/zstd".parse().unwrap());
     response.headers_mut().insert(
         header::CONTENT_DISPOSITION,
         format!("attachment; filename=backup-{}.tar.zst", backup.id)

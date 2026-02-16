@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use anki_backup_core::content_hash;
-use anki_backup_daemon::{AppState, build_router};
+use anki_backup_daemon::{build_router, AppState};
 use anki_backup_storage::{BackupPayload, BackupRepository, RunOnceOutcome};
 use chrono::Utc;
 use rusqlite::Connection;
@@ -47,7 +47,11 @@ struct TestServer {
     _handle: tokio::task::JoinHandle<()>,
 }
 
-async fn start_server(repo: BackupRepository, api_token: Option<String>, csrf_token: Option<String>) -> TestServer {
+async fn start_server(
+    repo: BackupRepository,
+    api_token: Option<String>,
+    csrf_token: Option<String>,
+) -> TestServer {
     let state = AppState {
         repo,
         rollback_gate: Arc::new(Mutex::new(None)),
@@ -86,7 +90,12 @@ async fn test_healthz() {
     let repo = BackupRepository::new(tmp.path()).unwrap();
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/api/v1/healthz", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/api/v1/healthz", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["status"], "ok");
@@ -99,7 +108,12 @@ async fn test_index_html() {
     create_backup(&repo, &sample_collection());
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("Anki Backups"));
@@ -113,7 +127,12 @@ async fn test_api_list_backups() {
     create_backup(&repo, &sample_collection());
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/api/v1/backups", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/api/v1/backups", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: Vec<serde_json::Value> = resp.json().await.unwrap();
     assert_eq!(body.len(), 1);
@@ -131,7 +150,12 @@ async fn test_api_backup_detail() {
     };
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/api/v1/backups/{id}", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/api/v1/backups/{id}", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["id"], id.to_string());
@@ -148,11 +172,28 @@ async fn test_download() {
     };
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/backups/{id}/download", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/backups/{id}/download", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
-    let ct = resp.headers().get("content-type").unwrap().to_str().unwrap().to_string();
+    let ct = resp
+        .headers()
+        .get("content-type")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     assert_eq!(ct, "application/zstd");
-    let cd = resp.headers().get("content-disposition").unwrap().to_str().unwrap().to_string();
+    let cd = resp
+        .headers()
+        .get("content-disposition")
+        .unwrap()
+        .to_str()
+        .unwrap()
+        .to_string();
     assert!(cd.contains(".tar.zst"));
     let bytes = resp.bytes().await.unwrap();
     assert!(!bytes.is_empty());
@@ -169,7 +210,12 @@ async fn test_rollback() {
     };
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.post(format!("{}/backups/{id}/rollback", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .post(format!("{}/backups/{id}/rollback", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body: serde_json::Value = resp.json().await.unwrap();
     assert_eq!(body["rolled_back_to"], id.to_string());
@@ -227,7 +273,12 @@ async fn test_api_auth_rejected_without_token() {
     create_backup(&repo, &sample_collection());
     let srv = start_server(repo, Some("secret-token".to_string()), None).await;
 
-    let resp = srv.client.get(format!("{}/api/v1/backups", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/api/v1/backups", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 401);
 }
 
@@ -238,7 +289,8 @@ async fn test_api_auth_accepted_with_token() {
     create_backup(&repo, &sample_collection());
     let srv = start_server(repo, Some("secret-token".to_string()), None).await;
 
-    let resp = srv.client
+    let resp = srv
+        .client
         .get(format!("{}/api/v1/backups", srv.base_url))
         .header("Authorization", "Bearer secret-token")
         .send()
@@ -259,11 +311,17 @@ async fn test_csrf_on_rollback() {
     let srv = start_server(repo, None, Some("csrf-secret".to_string())).await;
 
     // Without CSRF token -> 403
-    let resp = srv.client.post(format!("{}/backups/{id}/rollback", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .post(format!("{}/backups/{id}/rollback", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 403);
 
     // With CSRF token -> 200
-    let resp = srv.client
+    let resp = srv
+        .client
         .post(format!("{}/backups/{id}/rollback", srv.base_url))
         .header("x-csrf-token", "csrf-secret")
         .send()
@@ -283,7 +341,12 @@ async fn test_backup_detail_html() {
     };
     let srv = start_server(repo, None, None).await;
 
-    let resp = srv.client.get(format!("{}/backups/{id}", srv.base_url)).send().await.unwrap();
+    let resp = srv
+        .client
+        .get(format!("{}/backups/{id}", srv.base_url))
+        .send()
+        .await
+        .unwrap();
     assert_eq!(resp.status(), 200);
     let body = resp.text().await.unwrap();
     assert!(body.contains("Backup"));
