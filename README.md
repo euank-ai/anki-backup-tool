@@ -98,6 +98,45 @@ In daemon mode, the scheduler runs every hour on the hour. Each cycle:
 - Creates backup if content changed (skips if unchanged)
 - Prunes old backups past retention period
 
+## Docker
+
+```bash
+# Pull the image
+docker pull ghcr.io/euank-ai/anki-backup-tool:latest
+
+# Run the daemon
+docker run -d \
+  -p 8088:8088 \
+  -v anki-data:/data \
+  -e ANKIWEB_USERNAME=you@example.com \
+  -e ANKIWEB_PASSWORD=secret \
+  -e ANKI_COLLECTION_PATH=/data/collection.anki2 \
+  ghcr.io/euank-ai/anki-backup-tool:latest
+```
+
+## Helm
+
+```bash
+# Add and install
+helm install anki-backup ./chart/anki-backup-tool \
+  --set env.ANKIWEB_USERNAME=you@example.com \
+  --set env.ANKIWEB_PASSWORD=secret
+
+# Or use an existing secret for credentials
+helm install anki-backup ./chart/anki-backup-tool \
+  --set existingSecret=my-anki-secret
+
+# With persistence and ingress
+helm install anki-backup ./chart/anki-backup-tool \
+  --set persistence.size=5Gi \
+  --set ingress.enabled=true \
+  --set ingress.hosts[0].host=anki.example.com \
+  --set ingress.hosts[0].paths[0].path=/ \
+  --set ingress.hosts[0].paths[0].pathType=Prefix
+```
+
+See `chart/anki-backup-tool/values.yaml` for all configurable values.
+
 ## Development
 
 ```bash
