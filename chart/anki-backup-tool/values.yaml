@@ -1,0 +1,39 @@
+image:
+  repository: ghcr.io/euank-ai/anki-backup-tool
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8088
+
+persistence:
+  enabled: true
+  size: 1Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+# Environment variables passed to the daemon.
+# All supported env vars:
+#   ANKIWEB_USERNAME, ANKIWEB_PASSWORD, ANKI_SYNC_COMMAND,
+#   ANKI_COLLECTION_PATH, ANKI_BACKUP_RETENTION_DAYS,
+#   ANKI_BACKUP_API_TOKEN, ANKI_BACKUP_CSRF_TOKEN,
+#   ANKI_BACKUP_LISTEN (default 0.0.0.0:8088)
+env: {}
+
+# Use an existing Secret for credentials instead of env above.
+# The secret should contain the desired env var keys.
+existingSecret: ""
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  hosts:
+    - host: anki-backup.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+resources: {}

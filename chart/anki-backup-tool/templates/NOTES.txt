@@ -1,0 +1,11 @@
+anki-backup-tool has been deployed!
+
+Get the application URL:
+{{- if .Values.ingress.enabled }}
+  {{- range .Values.ingress.hosts }}
+  http{{ if $.Values.ingress.tls }}s{{ end }}://{{ .host }}
+  {{- end }}
+{{- else }}
+  kubectl port-forward svc/{{ include "anki-backup-tool.fullname" . }} {{ .Values.service.port }}:{{ .Values.service.port }}
+  Then visit http://localhost:{{ .Values.service.port }}
+{{- end }}
