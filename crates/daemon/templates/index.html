@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Anki Backups</title>
+  <style>
+    :root { --bg: #f8f9fa; --card: #fff; --border: #dee2e6; --primary: #0d6efd; --muted: #6c757d; --text: #212529; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+    h1 { margin-bottom: 1.5rem; font-size: 1.75rem; }
+    .backup-list { list-style: none; display: flex; flex-direction: column; gap: 0.75rem; }
+    .backup-item { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1rem 1.25rem; display: flex; justify-content: space-between; align-items: center; }
+    .backup-meta { display: flex; flex-direction: column; gap: 0.25rem; }
+    .backup-time { font-weight: 600; }
+    .backup-stats { font-size: 0.875rem; color: var(--muted); }
+    .backup-badge { display: inline-block; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 4px; font-weight: 600; text-transform: uppercase; }
+    .badge-created { background: #d1e7dd; color: #0f5132; }
+    .badge-skipped { background: #fff3cd; color: #664d03; }
+    .backup-actions { display: flex; gap: 0.5rem; }
+    .backup-actions a { text-decoration: none; color: var(--primary); font-size: 0.875rem; padding: 0.35rem 0.75rem; border: 1px solid var(--primary); border-radius: 6px; transition: background 0.15s; }
+    .backup-actions a:hover { background: var(--primary); color: #fff; }
+    .empty { color: var(--muted); font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>Anki Backups</h1>
+  {% if backups.is_empty() %}
+    <p class="empty">No backups yet.</p>
+  {% else %}
+    <ul class="backup-list">
+    {% for b in backups %}
+      <li class="backup-item">
+        <div class="backup-meta">
+          <span class="backup-time">{{ b.created_at }}</span>
+          <span class="backup-stats">
+            <span class="backup-badge {% if b.status == "created" %}badge-created{% else %}badge-skipped{% endif %}">{{ b.status }}</span>
+            &nbsp; {{ b.total_cards }} cards · {{ b.total_decks }} decks · {{ b.total_notes }} notes · {{ b.size_display }}
+          </span>
+        </div>
+        {% if b.status == "created" %}
+        <div class="backup-actions">
+          <a href="/backups/{{ b.id }}">View</a>
+          <a href="/backups/{{ b.id }}/download">Download</a>
+        </div>
+        {% endif %}
+      </li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+</body>
+</html>

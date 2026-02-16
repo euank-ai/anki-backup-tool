@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Backup {{ backup.id }}</title>
+  <style>
+    :root { --bg: #f8f9fa; --card: #fff; --border: #dee2e6; --primary: #0d6efd; --muted: #6c757d; --text: #212529; --danger: #dc3545; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; padding: 2rem; max-width: 960px; margin: 0 auto; }
+    h1 { margin-bottom: 0.5rem; font-size: 1.5rem; }
+    h2 { margin-top: 1.5rem; margin-bottom: 0.75rem; font-size: 1.2rem; }
+    .back { display: inline-block; margin-bottom: 1rem; color: var(--primary); text-decoration: none; }
+    .back:hover { text-decoration: underline; }
+    .info { background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; margin-bottom: 1rem; }
+    .info dt { font-weight: 600; color: var(--muted); font-size: 0.85rem; text-transform: uppercase; margin-top: 0.75rem; }
+    .info dt:first-child { margin-top: 0; }
+    .info dd { margin-left: 0; }
+    table { width: 100%; border-collapse: collapse; background: var(--card); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    th, td { text-align: left; padding: 0.6rem 1rem; border-bottom: 1px solid var(--border); }
+    th { background: var(--bg); font-size: 0.85rem; text-transform: uppercase; color: var(--muted); }
+    .actions { margin-top: 1.5rem; display: flex; gap: 0.75rem; }
+    .btn { display: inline-block; padding: 0.5rem 1rem; border-radius: 6px; text-decoration: none; font-size: 0.9rem; border: none; cursor: pointer; }
+    .btn-primary { background: var(--primary); color: #fff; }
+    .btn-danger { background: var(--danger); color: #fff; }
+  </style>
+</head>
+<body>
+  <a class="back" href="/">← All backups</a>
+  <h1>Backup {{ backup.id }}</h1>
+
+  <dl class="info">
+    <dt>Created</dt>
+    <dd>{{ backup.created_at }}</dd>
+    <dt>Status</dt>
+    <dd>{{ backup.status }}</dd>
+    <dt>Content hash</dt>
+    <dd><code>{{ backup.content_hash }}</code></dd>
+    <dt>Size</dt>
+    <dd>{{ backup.size_display }}</dd>
+  </dl>
+
+  {% if !backup.deck_stats.is_empty() %}
+  <h2>Deck breakdown</h2>
+  <table>
+    <thead><tr><th>Deck</th><th>Cards</th></tr></thead>
+    <tbody>
+    {% for d in backup.deck_stats %}
+      <tr><td>{{ d.deck_name }}</td><td>{{ d.card_count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if backup.status == "created" %}
+  <div class="actions">
+    <a class="btn btn-primary" href="/backups/{{ backup.id }}/download">Download</a>
+    <form method="post" action="/backups/{{ backup.id }}/rollback" style="display:inline">
+      <button class="btn btn-danger" type="submit" onclick="return confirm('Rollback to this backup?')">Rollback</button>
+    </form>
+  </div>
+  {% endif %}
+</body>
+</html>
