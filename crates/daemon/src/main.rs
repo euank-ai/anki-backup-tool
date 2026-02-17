@@ -19,16 +19,16 @@ async fn main() -> Result<()> {
 
     let root = env::var("ANKI_BACKUP_ROOT").unwrap_or_else(|_| "./data".to_owned());
     let listen = env::var("ANKI_BACKUP_LISTEN").unwrap_or_else(|_| "127.0.0.1:8088".to_owned());
-    let repo = BackupRepository::new(PathBuf::from(&root))?;
+    let repo = BackupRepository::from_env(PathBuf::from(&root)).await?;
 
     let mode = env::args().nth(1);
     match mode.as_deref() {
-        Some("run-once") => run_once(repo, sync_config_from_env()),
+        Some("run-once") => run_once(repo, sync_config_from_env()).await,
         _ => run_service(repo, &listen).await,
     }
 }
 
-fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()> {
+async fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()> {
     let sync = sync_collection(&sync_config)?;
     let hash = content_hash(&sync.collection_bytes);
     let payload = BackupPayload {
@@ -37,7 +37,7 @@ fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()> {
         sync_duration_ms: Some(sync.sync_duration_ms),
     };
 
-    match repo.run_once(payload, hash)? {
+    match repo.run_once(payload, hash).await? {
         RunOnceOutcome::Created(entry) => info!(backup_id = %entry.id, "backup created"),
         RunOnceOutcome::Skipped(entry) => {
             info!(backup_id = %entry.id, "backup skipped (unchanged)")
@@ -86,7 +86,7 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_da
                     source_revision: sync.source_revision,
                     sync_duration_ms: Some(sync.sync_duration_ms),
                 };
-                match repo.run_once(payload, hash) {
+                match repo.run_once(payload, hash).await {
                     Ok(RunOnceOutcome::Created(entry)) => {
                         info!(backup_id = %entry.id, "scheduled backup created")
                     }
@@ -96,7 +96,7 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_da
                     Err(e) => error!(error = %e, "scheduled backup failed"),
                 }
 
-                match repo.prune_created_older_than_days(retention_days) {
+                match repo.prune_created_older_than_days(retention_days).await {
                     Ok(removed) if removed > 0 => {
                         info!(
                             removed,

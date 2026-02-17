@@ -71,7 +71,7 @@ async fn start_server(
     }
 }
 
-fn create_backup(repo: &BackupRepository, data: &[u8]) -> RunOnceOutcome {
+async fn create_backup(repo: &BackupRepository, data: &[u8]) -> RunOnceOutcome {
     let hash = content_hash(data);
     repo.run_once(
         BackupPayload {
@@ -81,6 +81,7 @@ fn create_backup(repo: &BackupRepository, data: &[u8]) -> RunOnceOutcome {
         },
         hash,
     )
+    .await
     .unwrap()
 }
 
@@ -105,7 +106,7 @@ async fn test_healthz() {
 async fn test_index_html() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    create_backup(&repo, &sample_collection());
+    create_backup(&repo, &sample_collection()).await;
     let srv = start_server(repo, None, None).await;
 
     let resp = srv
@@ -124,7 +125,7 @@ async fn test_index_html() {
 async fn test_api_list_backups() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    create_backup(&repo, &sample_collection());
+    create_backup(&repo, &sample_collection()).await;
     let srv = start_server(repo, None, None).await;
 
     let resp = srv
@@ -143,7 +144,7 @@ async fn test_api_list_backups() {
 async fn test_api_backup_detail() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let id = match outcome {
         RunOnceOutcome::Created(e) => e.id,
         _ => panic!("expected created"),
@@ -165,7 +166,7 @@ async fn test_api_backup_detail() {
 async fn test_download() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let id = match outcome {
         RunOnceOutcome::Created(e) => e.id,
         _ => panic!("expected created"),
@@ -203,7 +204,7 @@ async fn test_download() {
 async fn test_rollback() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let id = match outcome {
         RunOnceOutcome::Created(e) => e.id,
         _ => panic!("expected created"),
@@ -226,9 +227,9 @@ async fn test_unchanged_content_skipped() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
     let data = sample_collection();
-    let first = create_backup(&repo, &data);
+    let first = create_backup(&repo, &data).await;
     assert!(matches!(first, RunOnceOutcome::Created(_)));
-    let second = create_backup(&repo, &data);
+    let second = create_backup(&repo, &data).await;
     assert!(matches!(second, RunOnceOutcome::Skipped(_)));
 }
 
@@ -236,8 +237,8 @@ async fn test_unchanged_content_skipped() {
 async fn test_changed_content_creates_new() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    create_backup(&repo, &sample_collection());
-    let second = create_backup(&repo, &sample_collection_v2());
+    create_backup(&repo, &sample_collection()).await;
+    let second = create_backup(&repo, &sample_collection_v2()).await;
     assert!(matches!(second, RunOnceOutcome::Created(_)));
 }
 
@@ -245,7 +246,7 @@ async fn test_changed_content_creates_new() {
 async fn test_retention_pruning() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let entry = match outcome {
         RunOnceOutcome::Created(e) => e,
         _ => panic!("expected created"),
@@ -261,16 +262,16 @@ async fn test_retention_pruning() {
     .unwrap();
     drop(conn);
 
-    let removed = repo.prune_created_older_than_days(90).unwrap();
+    let removed = repo.prune_created_older_than_days(90).await.unwrap();
     assert_eq!(removed, 1);
-    assert!(repo.list_backups().unwrap().is_empty());
+    assert!(repo.list_backups().await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn test_api_auth_rejected_without_token() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    create_backup(&repo, &sample_collection());
+    create_backup(&repo, &sample_collection()).await;
     let srv = start_server(repo, Some("secret-token".to_string()), None).await;
 
     let resp = srv
@@ -286,7 +287,7 @@ async fn test_api_auth_rejected_without_token() {
 async fn test_api_auth_accepted_with_token() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    create_backup(&repo, &sample_collection());
+    create_backup(&repo, &sample_collection()).await;
     let srv = start_server(repo, Some("secret-token".to_string()), None).await;
 
     let resp = srv
@@ -303,7 +304,7 @@ async fn test_api_auth_accepted_with_token() {
 async fn test_csrf_on_rollback() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let id = match outcome {
         RunOnceOutcome::Created(e) => e.id,
         _ => panic!("expected created"),
@@ -334,7 +335,7 @@ async fn test_csrf_on_rollback() {
 async fn test_backup_detail_html() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = BackupRepository::new(tmp.path()).unwrap();
-    let outcome = create_backup(&repo, &sample_collection());
+    let outcome = create_backup(&repo, &sample_collection()).await;
     let id = match outcome {
         RunOnceOutcome::Created(e) => e.id,
         _ => panic!("expected created"),

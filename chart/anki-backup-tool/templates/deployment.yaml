@@ -33,6 +33,21 @@ spec:
               value: /data
             - name: ANKI_BACKUP_LISTEN
               value: "0.0.0.0:8088"
+            {{- if eq .Values.database.type "postgres" }}
+            {{- if .Values.database.url }}
+            - name: DATABASE_URL
+              value: {{ .Values.database.url | quote }}
+            {{- else if .Values.database.postgres.existingSecret }}
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.database.postgres.existingSecret }}
+                  key: DATABASE_URL
+            {{- else }}
+            - name: DATABASE_URL
+              value: "postgres://{{ .Values.database.postgres.username }}:{{ .Values.database.postgres.password }}@{{ .Values.database.postgres.host }}:{{ .Values.database.postgres.port }}/{{ .Values.database.postgres.database }}"
+            {{- end }}
+            {{- end }}
             {{- range $key, $value := .Values.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
