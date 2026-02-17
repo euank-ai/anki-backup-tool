@@ -8,7 +8,7 @@ RUN cargo build --release -p anki-backup-daemon
 # Runtime stage
 FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates sqlite3 && \
+    ca-certificates sqlite3 libpq5 && \
     rm -rf /var/lib/apt/lists/*
 RUN useradd -r -m -s /bin/false anki
 COPY --from=builder /build/target/release/anki-backup-daemon /usr/local/bin/anki-backup-daemon

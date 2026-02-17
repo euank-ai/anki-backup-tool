@@ -113,6 +113,7 @@ async fn api_list_backups(
     let rows = state
         .repo
         .list_backups()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let json = rows
         .into_iter()
@@ -139,6 +140,7 @@ async fn api_backup_detail(
     let backup = state
         .repo
         .get_backup(id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     Ok(Json(serde_json::json!(backup)))
@@ -170,6 +172,7 @@ async fn rollback_backup(
     let rolled = state
         .repo
         .rollback_to(id)
+        .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
     *gate = Some(Utc::now());
     Ok(Json(serde_json::json!({"rolled_back_to": rolled.id})))
@@ -185,6 +188,7 @@ async fn download_backup(
     let backup = state
         .repo
         .get_backup(id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
     if backup.status != BackupStatus::Created {
@@ -231,6 +235,7 @@ async fn index(State(state): State<AppState>) -> Result<IndexTemplate, StatusCod
     let backups = state
         .repo
         .list_backups()
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let items = backups
         .into_iter()
@@ -261,6 +266,7 @@ async fn backup_detail(
     let b = state
         .repo
         .get_backup(id)
+        .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 

@@ -1,20 +1,18 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
-use anki_backup_core::{
-    BackupEntry, BackupSkipReason, BackupStats, BackupStatus, DeckStats, NewBackupEntry,
-};
+use anki_backup_core::{BackupEntry, BackupStats, BackupStatus, DeckStats, NewBackupEntry};
 use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::Connection;
 use serde_json::Value;
 use uuid::Uuid;
 
-#[derive(Debug, Clone)]
-pub struct BackupRepository {
-    root: PathBuf,
-}
+use crate::postgres_store::PostgresStore;
+use crate::sqlite_store::SqliteStore;
+use crate::store::MetadataStore;
 
 #[derive(Debug, Clone)]
 pub struct BackupPayload {
@@ -29,24 +27,70 @@ pub enum RunOnceOutcome {
     Skipped(BackupEntry),
 }
 
+#[derive(Clone)]
+pub struct BackupRepository {
+    root: PathBuf,
+    store: Arc<dyn MetadataStore>,
+}
+
+impl std::fmt::Debug for BackupRepository {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("BackupRepository")
+            .field("root", &self.root)
+            .finish()
+    }
+}
+
 impl BackupRepository {
+    /// Create a repository with SQLite backend (original behaviour).
     pub fn new(root: impl Into<PathBuf>) -> Result<Self> {
         let root = root.into();
         fs::create_dir_all(root.join("backups")).context("create backups directory")?;
         fs::create_dir_all(root.join("state")).context("create state directory")?;
-        let repo = Self { root };
-        repo.init_db()?;
-        Ok(repo)
+        let db_path = root.join("state").join("metadata.db");
+        let store = SqliteStore::new(db_path)?;
+        Ok(Self {
+            root,
+            store: Arc::new(store),
+        })
     }
 
-    pub fn run_once(&self, payload: BackupPayload, content_hash: String) -> Result<RunOnceOutcome> {
-        let now = Utc::now();
-        let conn = self.connect()?;
+    /// Create a repository with Postgres backend.
+    pub async fn with_postgres(root: impl Into<PathBuf>, database_url: &str) -> Result<Self> {
+        let root = root.into();
+        fs::create_dir_all(root.join("backups")).context("create backups directory")?;
+        fs::create_dir_all(root.join("state")).context("create state directory")?;
+        let store = PostgresStore::new(database_url).await?;
+        Ok(Self {
+            root,
+            store: Arc::new(store),
+        })
+    }
 
-        if let Some(last_hash) = self.last_created_hash(&conn)? {
+    /// Auto-detect backend from DATABASE_URL env var.
+    /// If DATABASE_URL starts with "postgres://", use Postgres; otherwise SQLite.
+    pub async fn from_env(root: impl Into<PathBuf>) -> Result<Self> {
+        let root = root.into();
+        match std::env::var("DATABASE_URL") {
+            Ok(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => {
+                Self::with_postgres(root, &url).await
+            }
+            _ => Self::new(root),
+        }
+    }
+
+    pub async fn run_once(
+        &self,
+        payload: BackupPayload,
+        content_hash: String,
+    ) -> Result<RunOnceOutcome> {
+        let now = Utc::now();
+
+        if let Some(last_hash) = self.store.last_created_hash().await? {
             if last_hash == content_hash {
-                let skipped =
-                    self.insert_entry(&conn, NewBackupEntry::skipped_unchanged(now, content_hash))?;
+                let skipped = self
+                    .create_and_insert_entry(NewBackupEntry::skipped_unchanged(now, content_hash))
+                    .await?;
                 return Ok(RunOnceOutcome::Skipped(skipped));
             }
         }
@@ -65,9 +109,8 @@ impl BackupRepository {
             .with_context(|| format!("stat payload file: {}", payload_path.display()))?
             .len() as i64;
 
-        let created = self.insert_entry(
-            &conn,
-            NewBackupEntry::created(
+        let created = self
+            .create_and_insert_entry(NewBackupEntry::created(
                 now,
                 timestamp_dir,
                 content_hash,
@@ -75,97 +118,31 @@ impl BackupRepository {
                 payload.sync_duration_ms,
                 size_bytes,
                 stats,
-            ),
-        )?;
+            ))
+            .await?;
 
         self.write_current_pointer(&created)?;
         Ok(RunOnceOutcome::Created(created))
     }
 
-    pub fn list_backups(&self) -> Result<Vec<BackupEntry>> {
-        let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, created_at, timestamp_dir, content_hash, status, skip_reason, source_revision,
-             sync_duration_ms, size_bytes, stats_json
-             FROM backups ORDER BY created_at DESC",
-        )?;
-
-        let rows = stmt.query_map([], |row| {
-            let status_s: String = row.get(4)?;
-            let skip_reason_s: Option<String> = row.get(5)?;
-            let stats_json: Option<String> = row.get(9)?;
-            Ok(BackupEntry {
-                id: parse_uuid(row.get::<_, String>(0)?),
-                created_at: parse_ts(row.get::<_, String>(1)?),
-                timestamp_dir: row.get(2)?,
-                content_hash: row.get(3)?,
-                status: parse_status(&status_s),
-                skip_reason: skip_reason_s.as_deref().map(parse_skip_reason),
-                source_revision: row.get(6)?,
-                sync_duration_ms: row.get(7)?,
-                size_bytes: row.get(8)?,
-                stats: stats_json
-                    .map(|raw| serde_json::from_str::<BackupStats>(&raw))
-                    .transpose()
-                    .map_err(to_sql_err)?,
-            })
-        })?;
-
-        rows.collect::<std::result::Result<Vec<_>, _>>()
-            .map_err(Into::into)
+    pub async fn list_backups(&self) -> Result<Vec<BackupEntry>> {
+        self.store.list_backups().await
     }
 
-    pub fn get_backup(&self, id: Uuid) -> Result<Option<BackupEntry>> {
-        let conn = self.connect()?;
-        let mut stmt = conn.prepare(
-            "SELECT id, created_at, timestamp_dir, content_hash, status, skip_reason, source_revision,
-             sync_duration_ms, size_bytes, stats_json
-             FROM backups WHERE id = ?1",
-        )?;
-        let found = stmt
-            .query_row([id.to_string()], |row| {
-                let status_s: String = row.get(4)?;
-                let skip_reason_s: Option<String> = row.get(5)?;
-                let stats_json: Option<String> = row.get(9)?;
-                Ok(BackupEntry {
-                    id: parse_uuid(row.get::<_, String>(0)?),
-                    created_at: parse_ts(row.get::<_, String>(1)?),
-                    timestamp_dir: row.get(2)?,
-                    content_hash: row.get(3)?,
-                    status: parse_status(&status_s),
-                    skip_reason: skip_reason_s.as_deref().map(parse_skip_reason),
-                    source_revision: row.get(6)?,
-                    sync_duration_ms: row.get(7)?,
-                    size_bytes: row.get(8)?,
-                    stats: stats_json
-                        .map(|raw| serde_json::from_str::<BackupStats>(&raw))
-                        .transpose()
-                        .map_err(to_sql_err)?,
-                })
-            })
-            .optional()?;
-        Ok(found)
+    pub async fn get_backup(&self, id: Uuid) -> Result<Option<BackupEntry>> {
+        self.store.get_backup(id).await
     }
 
-    pub fn rollback_to(&self, id: Uuid) -> Result<BackupEntry> {
+    pub async fn rollback_to(&self, id: Uuid) -> Result<BackupEntry> {
         let backup = self
-            .get_backup(id)?
+            .get_backup(id)
+            .await?
             .ok_or_else(|| anyhow!("backup not found: {id}"))?;
         if backup.status != BackupStatus::Created {
             return Err(anyhow!("cannot rollback to skipped backup {}", backup.id));
         }
         self.write_current_pointer(&backup)?;
-
-        let conn = self.connect()?;
-        conn.execute(
-            "INSERT INTO rollback_events (id, backup_id, created_at) VALUES (?1, ?2, ?3)",
-            params![
-                Uuid::new_v4().to_string(),
-                backup.id.to_string(),
-                Utc::now().to_rfc3339()
-            ],
-        )?;
-
+        self.store.insert_rollback_event(backup.id).await?;
         Ok(backup)
     }
 
@@ -176,22 +153,13 @@ impl BackupRepository {
             .join("collection.anki2")
     }
 
-    pub fn prune_created_older_than_days(&self, retention_days: i64) -> Result<usize> {
+    pub async fn prune_created_older_than_days(&self, retention_days: i64) -> Result<usize> {
         if retention_days <= 0 {
             return Ok(0);
         }
 
         let cutoff = Utc::now() - chrono::Duration::days(retention_days);
-        let conn = self.connect()?;
-
-        let mut stmt = conn.prepare(
-            "SELECT id, timestamp_dir FROM backups WHERE status = 'created' AND created_at < ?1",
-        )?;
-        let doomed = stmt
-            .query_map([cutoff.to_rfc3339()], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
-            })?
-            .collect::<std::result::Result<Vec<_>, _>>()?;
+        let doomed = self.store.prune_created_before(cutoff).await?;
 
         for (_, timestamp_dir) in &doomed {
             let dir = self.root.join("backups").join(timestamp_dir);
@@ -199,10 +167,6 @@ impl BackupRepository {
                 fs::remove_dir_all(&dir)
                     .with_context(|| format!("remove old backup dir: {}", dir.display()))?;
             }
-        }
-
-        for (id, _) in &doomed {
-            conn.execute("DELETE FROM backups WHERE id = ?1", [id])?;
         }
 
         Ok(doomed.len())
@@ -221,31 +185,7 @@ impl BackupRepository {
         Ok(())
     }
 
-    fn init_db(&self) -> Result<()> {
-        let conn = self.connect()?;
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS backups (
-                id TEXT PRIMARY KEY,
-                created_at TEXT NOT NULL,
-                timestamp_dir TEXT NOT NULL,
-                content_hash TEXT NOT NULL,
-                status TEXT NOT NULL,
-                skip_reason TEXT,
-                source_revision TEXT,
-                sync_duration_ms INTEGER,
-                size_bytes INTEGER NOT NULL DEFAULT 0,
-                stats_json TEXT
-            );
-            CREATE TABLE IF NOT EXISTS rollback_events (
-                id TEXT PRIMARY KEY,
-                backup_id TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );",
-        )?;
-        Ok(())
-    }
-
-    fn insert_entry(&self, conn: &Connection, new_entry: NewBackupEntry) -> Result<BackupEntry> {
+    async fn create_and_insert_entry(&self, new_entry: NewBackupEntry) -> Result<BackupEntry> {
         let entry = BackupEntry {
             id: Uuid::new_v4(),
             created_at: new_entry.created_at,
@@ -259,27 +199,7 @@ impl BackupRepository {
             stats: new_entry.stats,
         };
 
-        conn.execute(
-            "INSERT INTO backups (id, created_at, timestamp_dir, content_hash, status, skip_reason,
-             source_revision, sync_duration_ms, size_bytes, stats_json)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
-            params![
-                entry.id.to_string(),
-                entry.created_at.to_rfc3339(),
-                entry.timestamp_dir,
-                entry.content_hash,
-                status_str(&entry.status),
-                entry.skip_reason.as_ref().map(skip_reason_str),
-                entry.source_revision,
-                entry.sync_duration_ms,
-                entry.size_bytes,
-                entry
-                    .stats
-                    .as_ref()
-                    .map(serde_json::to_string)
-                    .transpose()?
-            ],
-        )?;
+        self.store.insert_entry(&entry).await?;
 
         if matches!(entry.status, BackupStatus::Created) {
             let metadata_json_path = self
@@ -295,21 +215,6 @@ impl BackupRepository {
         }
 
         Ok(entry)
-    }
-
-    fn last_created_hash(&self, conn: &Connection) -> Result<Option<String>> {
-        let mut stmt = conn.prepare(
-            "SELECT content_hash FROM backups WHERE status = 'created' ORDER BY created_at DESC LIMIT 1",
-        )?;
-        let hash = stmt
-            .query_row([], |row| row.get::<_, String>(0))
-            .optional()?;
-        Ok(hash)
-    }
-
-    fn connect(&self) -> Result<Connection> {
-        let db_path = self.root.join("state").join("metadata.db");
-        Connection::open(db_path).context("open metadata db")
     }
 }
 
@@ -367,48 +272,6 @@ fn parse_deck_names(raw: &str) -> Result<HashMap<i64, String>> {
     Ok(out)
 }
 
-fn parse_uuid(raw: String) -> Uuid {
-    Uuid::parse_str(&raw).unwrap_or_else(|_| Uuid::nil())
-}
-
-fn parse_ts(raw: String) -> DateTime<Utc> {
-    DateTime::parse_from_rfc3339(&raw)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now())
-}
-
-fn parse_status(raw: &str) -> BackupStatus {
-    if raw.eq_ignore_ascii_case("skipped") {
-        BackupStatus::Skipped
-    } else {
-        BackupStatus::Created
-    }
-}
-
-fn status_str(status: &BackupStatus) -> &'static str {
-    match status {
-        BackupStatus::Created => "created",
-        BackupStatus::Skipped => "skipped",
-    }
-}
-
-fn parse_skip_reason(raw: &str) -> BackupSkipReason {
-    match raw {
-        "unchanged" => BackupSkipReason::Unchanged,
-        _ => BackupSkipReason::Unchanged,
-    }
-}
-
-fn skip_reason_str(reason: &BackupSkipReason) -> &'static str {
-    match reason {
-        BackupSkipReason::Unchanged => "unchanged",
-    }
-}
-
-fn to_sql_err(e: serde_json::Error) -> rusqlite::Error {
-    rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e))
-}
-
 fn format_timestamp_dir(now: DateTime<Utc>) -> String {
     now.to_rfc3339_opts(SecondsFormat::Secs, true)
         .replace(':', "-")
@@ -436,8 +299,8 @@ mod tests {
         std::fs::read(tmp.path()).unwrap()
     }
 
-    #[test]
-    fn run_once_create_then_skip() {
+    #[tokio::test]
+    async fn run_once_create_then_skip() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = BackupRepository::new(tmp.path()).unwrap();
         let payload = sample_collection();
@@ -452,6 +315,7 @@ mod tests {
                 },
                 hash.clone(),
             )
+            .await
             .unwrap();
         assert!(matches!(first, RunOnceOutcome::Created(_)));
 
@@ -464,12 +328,13 @@ mod tests {
                 },
                 hash,
             )
+            .await
             .unwrap();
         assert!(matches!(second, RunOnceOutcome::Skipped(_)));
     }
 
-    #[test]
-    fn prune_retention_deletes_old_created_backups() {
+    #[tokio::test]
+    async fn prune_retention_deletes_old_created_backups() {
         let tmp = tempfile::tempdir().unwrap();
         let repo = BackupRepository::new(tmp.path()).unwrap();
         let payload = sample_collection();
@@ -482,24 +347,26 @@ mod tests {
                 },
                 "hash1".to_string(),
             )
+            .await
             .unwrap()
         {
             RunOnceOutcome::Created(e) => e,
             RunOnceOutcome::Skipped(_) => panic!("expected created backup"),
         };
 
-        let conn = repo.connect().unwrap();
+        // Backdate via direct SQLite access
+        let conn = Connection::open(tmp.path().join("state").join("metadata.db")).unwrap();
         let old = (Utc::now() - chrono::Duration::days(400)).to_rfc3339();
         conn.execute(
             "UPDATE backups SET created_at = ?1 WHERE id = ?2",
-            params![old, created.id.to_string()],
+            rusqlite::params![old, created.id.to_string()],
         )
         .unwrap();
 
-        let removed = repo.prune_created_older_than_days(90).unwrap();
+        let removed = repo.prune_created_older_than_days(90).await.unwrap();
         assert_eq!(removed, 1);
 
-        let remaining = repo.list_backups().unwrap();
+        let remaining = repo.list_backups().await.unwrap();
         assert!(remaining.is_empty());
         assert!(!repo
             .root

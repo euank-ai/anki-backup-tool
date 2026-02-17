@@ -26,6 +26,8 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 uuid = { version = "1.16", features = ["v4", "serde"] }
 rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "tls-rustls", "postgres", "chrono", "uuid"] }
+async-trait = "0.1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 thiserror = "2.0"
 tar = "0.4"

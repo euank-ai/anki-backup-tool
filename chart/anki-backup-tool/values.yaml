@@ -36,4 +36,19 @@ ingress:
           pathType: Prefix
   tls: []
 
+# Database backend: sqlite (default) or postgres.
+# When database.type is "postgres", a DATABASE_URL env var is set automatically.
+database:
+  type: sqlite
+  # Raw DATABASE_URL override (takes precedence over individual fields below).
+  # url: "postgres://user:pass@host:5432/dbname"
+  postgres:
+    host: ""
+    port: 5432
+    database: "anki_backup"
+    username: "anki"
+    password: ""
+    # Use an existing k8s Secret containing a DATABASE_URL key.
+    existingSecret: ""
+
 resources: {}

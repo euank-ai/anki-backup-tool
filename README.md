@@ -45,6 +45,7 @@ All configuration is via environment variables:
 | `ANKI_BACKUP_RETENTION_DAYS` | `90` | Days to keep created backups before pruning |
 | `ANKI_BACKUP_API_TOKEN` | — | Bearer token for API auth (optional) |
 | `ANKI_BACKUP_CSRF_TOKEN` | — | CSRF token required for rollback (optional) |
+| `DATABASE_URL` | — | Database URL. If starts with `postgres://`, uses Postgres; otherwise SQLite (default) |
 
 ## API Reference
 
@@ -88,8 +89,20 @@ anki-backup-tool/
 2. **Hash**: SHA-256 of collection bytes is compared to last created backup
 3. **Store**: If changed, collection is written to `backups/<timestamp>/collection.anki2`
 4. **Stats**: Card/deck/note/revlog counts extracted from the SQLite collection
-5. **Metadata**: Entry recorded in `state/metadata.db` (SQLite)
+5. **Metadata**: Entry recorded in `state/metadata.db` (SQLite) or Postgres when `DATABASE_URL` is set
 6. **Prune**: Backups older than retention period are deleted
+
+### Database Backend
+
+By default, metadata is stored in a local SQLite database at `$ANKI_BACKUP_ROOT/state/metadata.db`. For production or multi-instance deployments, you can use Postgres instead:
+
+```bash
+DATABASE_URL=postgres://user:pass@localhost:5432/anki_backup \
+ANKI_BACKUP_ROOT=./data \
+cargo run -p anki-backup-daemon
+```
+
+Tables are created automatically on first run. Backup files are always stored on the filesystem regardless of database backend.
 
 ### Scheduler
 
@@ -133,6 +146,17 @@ helm install anki-backup ./chart/anki-backup-tool \
   --set ingress.hosts[0].host=anki.example.com \
   --set ingress.hosts[0].paths[0].path=/ \
   --set ingress.hosts[0].paths[0].pathType=Prefix
+
+# With Postgres backend
+helm install anki-backup ./chart/anki-backup-tool \
+  --set database.type=postgres \
+  --set database.postgres.host=my-postgres \
+  --set database.postgres.password=secret
+
+# With Postgres using an existing secret (must contain DATABASE_URL key)
+helm install anki-backup ./chart/anki-backup-tool \
+  --set database.type=postgres \
+  --set database.postgres.existingSecret=my-db-secret
 ```
 
 See `chart/anki-backup-tool/values.yaml` for all configurable values.
