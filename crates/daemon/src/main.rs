@@ -29,7 +29,7 @@ async fn main() -> Result<()> {
 }
 
 async fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()> {
-    let sync = sync_collection(&sync_config)?;
+    let sync = sync_collection(&sync_config).await?;
     let hash = content_hash(&sync.collection_bytes);
     let payload = BackupPayload {
         bytes: sync.collection_bytes,
@@ -78,7 +78,7 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_da
         let secs_to_next_hour = 3600 - (now.minute() * 60 + now.second()) as u64;
         sleep(Duration::from_secs(secs_to_next_hour.max(1))).await;
 
-        match sync_collection(&config) {
+        match sync_collection(&config).await {
             Ok(sync) => {
                 let hash = content_hash(&sync.collection_bytes);
                 let payload = BackupPayload {
@@ -114,9 +114,8 @@ async fn scheduler_loop(repo: BackupRepository, config: SyncConfig, retention_da
 
 fn sync_config_from_env() -> SyncConfig {
     SyncConfig {
-        username: env::var("ANKIWEB_USERNAME").ok(),
-        password: env::var("ANKIWEB_PASSWORD").ok(),
-        collection_path: env::var("ANKI_COLLECTION_PATH").ok().map(PathBuf::from),
-        sync_command: env::var("ANKI_SYNC_COMMAND").ok(),
+        username: env::var("ANKIWEB_USERNAME").unwrap_or_default(),
+        password: env::var("ANKIWEB_PASSWORD").unwrap_or_default(),
+        endpoint: env::var("ANKIWEB_ENDPOINT").ok(),
     }
 }
