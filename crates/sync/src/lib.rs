@@ -129,11 +129,7 @@ async fn sync_request(
     session_key: &str,
     body: &[u8],
 ) -> Result<SyncRequestResult> {
-    let url = format!(
-        "{}/sync/{}",
-        endpoint.trim_end_matches('/'),
-        method
-    );
+    let url = format!("{}/sync/{}", endpoint.trim_end_matches('/'), method);
     tracing::debug!(%url, %method, "sync request");
 
     let header = SyncHeader {
@@ -188,7 +184,9 @@ async fn sync_request(
         let headers = format!("{:?}", resp.headers());
         let body = resp.text().await.unwrap_or_default();
         tracing::error!(%status, %headers, body_len = body.len(), "sync request failed");
-        return Err(anyhow!("sync request to {method} failed ({status}): {body}"));
+        return Err(anyhow!(
+            "sync request to {method} failed ({status}): {body}"
+        ));
     }
 
     let resp_bytes = resp.bytes().await?;
@@ -222,8 +220,8 @@ async fn login(
         .await
         .map_err(|e| SyncError::LoginFailed(e.to_string()))?;
 
-    let resp: HostKeyResponse = serde_json::from_slice(&result.data)
-        .with_context(|| "parsing hostKey response")?;
+    let resp: HostKeyResponse =
+        serde_json::from_slice(&result.data).with_context(|| "parsing hostKey response")?;
 
     tracing::info!(?resp, "AnkiWeb login successful");
     Ok((resp.key, session_key))
@@ -267,10 +265,7 @@ pub async fn sync_collection(config: &SyncConfig) -> Result<SyncResult> {
         return Err(SyncError::MissingCredentials.into());
     }
 
-    let endpoint = config
-        .endpoint
-        .as_deref()
-        .unwrap_or(DEFAULT_ENDPOINT);
+    let endpoint = config.endpoint.as_deref().unwrap_or(DEFAULT_ENDPOINT);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(300))
@@ -287,22 +282,15 @@ pub async fn sync_collection(config: &SyncConfig) -> Result<SyncResult> {
         client_version: CLIENT_VERSION.to_string(),
     };
     let meta_body = serde_json::to_vec(&meta_req)?;
-    let meta_result = sync_request(
-        &client,
-        endpoint,
-        "meta",
-        &hkey,
-        &session_key,
-        &meta_body,
-    )
-    .await
-    .with_context(|| "meta request failed")?;
+    let meta_result = sync_request(&client, endpoint, "meta", &hkey, &session_key, &meta_body)
+        .await
+        .with_context(|| "meta request failed")?;
 
     // Use redirected endpoint for subsequent requests
     let endpoint = meta_result.new_endpoint.as_deref().unwrap_or(endpoint);
 
-    let meta: MetaResponse = serde_json::from_slice(&meta_result.data)
-        .with_context(|| "parsing meta response")?;
+    let meta: MetaResponse =
+        serde_json::from_slice(&meta_result.data).with_context(|| "parsing meta response")?;
 
     if !meta.server_message.is_empty() {
         tracing::info!(message = %meta.server_message, "AnkiWeb server message");
