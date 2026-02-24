@@ -13,6 +13,13 @@ async fn test_live_sync() {
     };
 
     let result = sync_collection(&config).await.unwrap();
-    println!("Downloaded {} bytes in {}ms", result.collection_bytes.len(), result.sync_duration_ms);
-    assert!(!result.collection_bytes.is_empty(), "collection should not be empty");
+    println!(
+        "Downloaded {} bytes in {}ms",
+        result.collection_bytes.len(),
+        result.sync_duration_ms
+    );
+    assert!(
+        !result.collection_bytes.is_empty(),
+        "collection should not be empty"
+    );
 }
