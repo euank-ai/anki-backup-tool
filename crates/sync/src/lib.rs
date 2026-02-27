@@ -74,9 +74,6 @@ struct HostKeyRequest {
 #[derive(Deserialize, Debug)]
 struct HostKeyResponse {
     key: String,
-    /// Some newer AnkiWeb versions return an endpoint to use for subsequent requests
-    #[serde(default)]
-    endpoint: Option<String>,
 }
 
 /// Generate a simple random session key (matching upstream's approach).
@@ -241,9 +238,6 @@ struct MetaRequest {
 /// Server meta response (we only need a subset of fields).
 #[derive(Deserialize, Debug)]
 struct MetaResponse {
-    /// Whether the server says we should continue
-    #[serde(rename = "cont", default)]
-    should_continue: bool,
     /// Server message (if any)
     #[serde(rename = "msg", default)]
     server_message: String,
