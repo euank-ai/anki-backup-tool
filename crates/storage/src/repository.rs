@@ -231,8 +231,15 @@ fn extract_stats(path: &Path) -> Result<BackupStats> {
     let total_notes: i64 = conn.query_row("SELECT COUNT(*) FROM notes", [], |r| r.get(0))?;
     let total_revlog: i64 = conn.query_row("SELECT COUNT(*) FROM revlog", [], |r| r.get(0))?;
 
-    let decks_json: String = conn.query_row("SELECT decks FROM col LIMIT 1", [], |r| r.get(0))?;
-    let deck_names = parse_deck_names(&decks_json)?;
+    // Modern Anki (schema 18+) stores decks in a `decks` table;
+    // older schemas store them as JSON in `col.decks`.
+    let deck_names = parse_deck_names_new(&conn)
+        .or_else(|_| {
+            let json: String =
+                conn.query_row("SELECT decks FROM col LIMIT 1", [], |r| r.get(0))?;
+            parse_deck_names_legacy(&json)
+        })
+        .context("extract deck names")?;
     let total_decks = deck_names.len() as i64;
 
     let mut stmt = conn.prepare("SELECT did, COUNT(*) AS c FROM cards GROUP BY did")?;
@@ -261,7 +268,20 @@ fn extract_stats(path: &Path) -> Result<BackupStats> {
     })
 }
 
-fn parse_deck_names(raw: &str) -> Result<HashMap<i64, String>> {
+/// Schema 18+: read deck names from the `decks` table.
+fn parse_deck_names_new(conn: &Connection) -> Result<HashMap<i64, String>> {
+    let mut stmt = conn.prepare("SELECT id, name FROM decks")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))?;
+    let mut out = HashMap::new();
+    for row in rows {
+        let (id, name) = row?;
+        out.insert(id, name);
+    }
+    Ok(out)
+}
+
+/// Legacy schema: deck names stored as JSON in `col.decks`.
+fn parse_deck_names_legacy(raw: &str) -> Result<HashMap<i64, String>> {
     let v: Value = serde_json::from_str(raw).context("parse col.decks json")?;
     let mut out = HashMap::new();
     let obj = v
