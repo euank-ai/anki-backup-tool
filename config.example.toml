@@ -11,9 +11,10 @@ retention_days = 90
 [ankiweb]
 username = "your-ankiweb-username"
 password = "your-ankiweb-password"
-collection_path = "/var/lib/anki/collection.anki2"
-sync_command = "python3 /opt/anki-sync/run_sync.py"
+
+# [storage]
+# database_url = "postgres://user:pass@localhost:5432/anki_backup"
 
 [security]
-auth_enabled = true
+api_token = ""
 csrf_token = "replace-me"

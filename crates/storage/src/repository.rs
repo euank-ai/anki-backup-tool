@@ -70,10 +70,16 @@ impl BackupRepository {
     /// Auto-detect backend from DATABASE_URL env var.
     /// If DATABASE_URL starts with "postgres://", use Postgres; otherwise SQLite.
     pub async fn from_env(root: impl Into<PathBuf>) -> Result<Self> {
+        Self::init(root, std::env::var("DATABASE_URL").ok().as_deref()).await
+    }
+
+    /// Initialise repository with an explicit optional database URL.
+    /// If `database_url` starts with "postgres://", use Postgres; otherwise SQLite.
+    pub async fn init(root: impl Into<PathBuf>, database_url: Option<&str>) -> Result<Self> {
         let root = root.into();
-        match std::env::var("DATABASE_URL") {
-            Ok(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => {
-                Self::with_postgres(root, &url).await
+        match database_url {
+            Some(url) if url.starts_with("postgres://") || url.starts_with("postgresql://") => {
+                Self::with_postgres(root, url).await
             }
             _ => Self::new(root),
         }

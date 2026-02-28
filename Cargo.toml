@@ -34,4 +34,5 @@ tar = "0.4"
 tempfile = "3.19"
 askama = "0.15"
 askama_web = { version = "0.15", features = ["axum-0.8"] }
+toml = "0.8"
 zstd = "0.13"

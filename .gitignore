@@ -5,3 +5,4 @@ target/
 .env.*
 .env.test
 data/
+/config.toml

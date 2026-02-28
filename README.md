@@ -5,7 +5,7 @@ Linux-first headless daemon for change-aware Anki backups with AnkiWeb sync inte
 ## Features
 
 - **Headless daemon** — no desktop UI dependency
-- **AnkiWeb sync** via configurable command hook
+- **AnkiWeb sync** via direct protocol integration
 - **Change-aware** — skips backup when collection is unchanged
 - **Compressed downloads** — tar + zstd (`.tar.zst`)
 - **JSON API** + templated web UI (Askama) for list/detail/download/rollback
@@ -18,34 +18,35 @@ Linux-first headless daemon for change-aware Anki backups with AnkiWeb sync inte
 
 ```bash
 # One-shot backup (sync + backup)
-ANKIWEB_USERNAME=you@example.com \
-ANKIWEB_PASSWORD=secret \
-ANKI_COLLECTION_PATH=/path/to/collection.anki2 \
-ANKI_SYNC_COMMAND='python3 /opt/anki-sync/run_sync.py' \
-cargo run -p anki-backup-daemon -- run-once
+cargo run -p anki-backup-daemon -- --config config.toml run-once
 
 # Daemon mode (API/UI + hourly scheduler)
-ANKI_BACKUP_ROOT=./data \
-ANKI_BACKUP_LISTEN=127.0.0.1:8088 \
-cargo run -p anki-backup-daemon
+cargo run -p anki-backup-daemon -- --config config.toml
 ```
 
 ## Configuration
 
-All configuration is via environment variables:
+Configuration is loaded from a TOML file via the `--config` flag. Environment variables override config file values.
 
-| Variable | Default | Description |
-|---|---|---|
-| `ANKI_BACKUP_ROOT` | `./data` | Root directory for backups and state DB |
-| `ANKI_BACKUP_LISTEN` | `127.0.0.1:8088` | Address for the HTTP server |
-| `ANKIWEB_USERNAME` | — | AnkiWeb account email |
-| `ANKIWEB_PASSWORD` | — | AnkiWeb account password |
-| `ANKI_COLLECTION_PATH` | — | Path to synchronized `collection.anki2` |
-| `ANKI_SYNC_COMMAND` | — | Shell command to sync before reading collection |
-| `ANKI_BACKUP_RETENTION_DAYS` | `90` | Days to keep created backups before pruning |
-| `ANKI_BACKUP_API_TOKEN` | — | Bearer token for API auth (optional) |
-| `ANKI_BACKUP_CSRF_TOKEN` | — | CSRF token required for rollback (optional) |
-| `DATABASE_URL` | — | Database URL. If starts with `postgres://`, uses Postgres; otherwise SQLite (default) |
+```bash
+cargo run -p anki-backup-daemon -- --config config.toml
+```
+
+See `config.example.toml` for all available options.
+
+### Environment variable overrides
+
+| Variable | Config key | Default | Description |
+|---|---|---|---|
+| `ANKI_BACKUP_ROOT` | `storage.root` | `./data` | Root directory for backups and state DB |
+| `ANKI_BACKUP_LISTEN` | `server.listen` | `127.0.0.1:8088` | Address for the HTTP server |
+| `ANKIWEB_USERNAME` | `ankiweb.username` | — | AnkiWeb account email |
+| `ANKIWEB_PASSWORD` | `ankiweb.password` | — | AnkiWeb account password |
+| `ANKIWEB_ENDPOINT` | `ankiweb.endpoint` | — | Override AnkiWeb sync endpoint |
+| `ANKI_BACKUP_RETENTION_DAYS` | `storage.retention_days` | `90` | Days to keep created backups before pruning |
+| `ANKI_BACKUP_API_TOKEN` | `security.api_token` | — | Bearer token for API auth (optional) |
+| `ANKI_BACKUP_CSRF_TOKEN` | `security.csrf_token` | — | CSRF token required for rollback (optional) |
+| `DATABASE_URL` | `storage.database_url` | — | If starts with `postgres://`, uses Postgres; otherwise SQLite |
 
 ## API Reference
 
@@ -77,7 +78,7 @@ anki-backup-tool/
 ├── crates/
 │   ├── core/       # Domain types: BackupEntry, BackupStats, content hashing
 │   ├── storage/    # SQLite metadata DB + file-based backup repository
-│   ├── sync/       # AnkiWeb sync via command hook
+│   ├── sync/       # Direct AnkiWeb sync protocol client
 │   └── daemon/     # Axum HTTP server, scheduler, Askama templates
 ├── docs/           # Architecture, operations, rollback docs
 └── packaging/      # systemd service file
@@ -85,7 +86,7 @@ anki-backup-tool/
 
 ### Data flow
 
-1. **Sync**: `sync_command` is executed with AnkiWeb credentials in env
+1. **Sync**: Collection is downloaded directly from AnkiWeb via sync protocol
 2. **Hash**: SHA-256 of collection bytes is compared to last created backup
 3. **Store**: If changed, collection is written to `backups/<timestamp>/collection.anki2`
 4. **Stats**: Card/deck/note/revlog counts extracted from the SQLite collection
@@ -123,7 +124,6 @@ docker run -d \
   -v anki-data:/data \
   -e ANKIWEB_USERNAME=you@example.com \
   -e ANKIWEB_PASSWORD=secret \
-  -e ANKI_COLLECTION_PATH=/data/collection.anki2 \
   ghcr.io/euank-ai/anki-backup-tool:latest
 ```
 

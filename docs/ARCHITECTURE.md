@@ -8,7 +8,7 @@ Workspace crates:
 
 Flow:
 1. Scheduler tick (hourly, top-of-hour)
-2. Sync adapter refreshes local collection from AnkiWeb (`ANKI_SYNC_COMMAND`)
+2. Sync adapter downloads collection directly from AnkiWeb
 3. Daemon hashes collection bytes
 4. Storage compares hash with last created backup
 5. Unchanged => insert skipped run; changed => persist new backup snapshot + metadata + stats
