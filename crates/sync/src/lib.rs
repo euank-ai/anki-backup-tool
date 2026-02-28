@@ -17,9 +17,11 @@ const SYNC_VERSION: u8 = 11;
 /// Default AnkiWeb sync endpoint.
 const DEFAULT_ENDPOINT: &str = "https://sync.ankiweb.net/";
 
-/// Client version string sent in the sync header.
-/// We mimic an official Anki client to avoid server-side version checks.
-const CLIENT_VERSION: &str = "anki,25.02";
+/// Client version for the SyncHeader `c` field (short form).
+const CLIENT_VERSION_SHORT: &str = "25.09.2,dev,linux";
+
+/// Client version for request bodies like MetaRequest `cv` field (long form).
+const CLIENT_VERSION_LONG: &str = "anki,25.09.2 (dev),linux";
 
 #[derive(Debug, Clone)]
 pub struct SyncConfig {
@@ -132,7 +134,7 @@ async fn sync_request(
     let header = SyncHeader {
         sync_version: SYNC_VERSION,
         sync_key: hkey.to_string(),
-        client_ver: CLIENT_VERSION.to_string(),
+        client_ver: CLIENT_VERSION_SHORT.to_string(),
         session_key: session_key.to_string(),
     };
 
@@ -273,7 +275,7 @@ pub async fn sync_collection(config: &SyncConfig) -> Result<SyncResult> {
     // The server may redirect us to a shard; use the new endpoint for download.
     let meta_req = MetaRequest {
         sync_version: SYNC_VERSION,
-        client_version: CLIENT_VERSION.to_string(),
+        client_version: CLIENT_VERSION_LONG.to_string(),
     };
     let meta_body = serde_json::to_vec(&meta_req)?;
     let meta_result = sync_request(&client, endpoint, "meta", &hkey, &session_key, &meta_body)
