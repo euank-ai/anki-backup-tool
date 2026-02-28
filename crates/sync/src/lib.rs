@@ -246,6 +246,14 @@ struct MetaResponse {
     /// Whether the server collection is empty
     #[serde(default)]
     empty: bool,
+    /// Whether the client should continue (T&C accepted, etc.)
+    #[serde(default = "default_true")]
+    #[allow(dead_code)]
+    should_continue: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 /// Download the full collection from AnkiWeb.
@@ -321,6 +329,59 @@ pub async fn sync_collection(config: &SyncConfig) -> Result<SyncResult> {
         source_revision: None,
         sync_duration_ms: start.elapsed().as_millis() as i64,
     })
+}
+
+/// Upload (force-replace) a full collection to AnkiWeb.
+///
+/// Protocol flow:
+/// 1. Authenticate with username/password → host key
+/// 2. Call `meta` to initiate sync session and get shard redirect
+/// 3. Call `upload` with the raw collection database bytes
+pub async fn upload_collection(config: &SyncConfig, collection_bytes: &[u8]) -> Result<()> {
+    if config.username.is_empty() || config.password.is_empty() {
+        return Err(SyncError::MissingCredentials.into());
+    }
+
+    let endpoint = config.endpoint.as_deref().unwrap_or(DEFAULT_ENDPOINT);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(300))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+
+    // Step 1: Login
+    let (hkey, session_key) = login(&client, endpoint, &config.username, &config.password).await?;
+
+    // Step 2: Meta
+    let meta_req = MetaRequest {
+        sync_version: SYNC_VERSION,
+        client_version: CLIENT_VERSION_LONG.to_string(),
+    };
+    let meta_body = serde_json::to_vec(&meta_req)?;
+    let meta_result = sync_request(&client, endpoint, "meta", &hkey, &session_key, &meta_body)
+        .await
+        .with_context(|| "meta request failed")?;
+
+    let endpoint = meta_result.new_endpoint.as_deref().unwrap_or(endpoint);
+
+    // Step 3: Upload — the body is the raw collection database
+    let _upload_result = sync_request(
+        &client,
+        endpoint,
+        "upload",
+        &hkey,
+        &session_key,
+        collection_bytes,
+    )
+    .await
+    .with_context(|| "upload request failed")?;
+
+    tracing::info!(
+        bytes = collection_bytes.len(),
+        "Uploaded collection to AnkiWeb"
+    );
+
+    Ok(())
 }
 
 #[cfg(test)]

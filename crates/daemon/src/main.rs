@@ -111,6 +111,7 @@ async fn run_once(repo: BackupRepository, sync_config: SyncConfig) -> Result<()>
 }
 
 async fn run_service(repo: BackupRepository, listen: &str, cfg: &Config) -> Result<()> {
+    let sc = sync_config(cfg);
     let state = AppState {
         repo: repo.clone(),
         rollback_gate: Arc::new(Mutex::new(None)),
@@ -120,6 +121,11 @@ async fn run_service(repo: BackupRepository, listen: &str, cfg: &Config) -> Resu
         api_token: env::var("ANKI_BACKUP_API_TOKEN")
             .ok()
             .or_else(|| cfg.security.api_token.clone()),
+        sync_config: if sc.username.is_empty() || sc.password.is_empty() {
+            None
+        } else {
+            Some(sc.clone())
+        },
     };
 
     let retention_days = env::var("ANKI_BACKUP_RETENTION_DAYS")
@@ -129,6 +135,7 @@ async fn run_service(repo: BackupRepository, listen: &str, cfg: &Config) -> Resu
         .unwrap_or(90);
 
     tokio::spawn(scheduler_loop(repo, sync_config(cfg), retention_days));
+
 
     let addr: SocketAddr = listen
         .parse()

@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use anki_backup_core::{BackupStatus, DeckStats};
 use anki_backup_storage::BackupRepository;
+use anki_backup_sync::SyncConfig;
 use askama::Template;
 use askama_web::WebTemplate;
 use axum::extract::{Path, State};
@@ -21,6 +22,7 @@ pub struct AppState {
     pub rollback_gate: Arc<Mutex<Option<chrono::DateTime<Utc>>>>,
     pub csrf_token: Option<String>,
     pub api_token: Option<String>,
+    pub sync_config: Option<SyncConfig>,
 }
 
 // --- Template view models ---
@@ -175,8 +177,27 @@ async fn rollback_backup(
         .rollback_to(id)
         .await
         .map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    // Upload the rolled-back collection to AnkiWeb
+    if let Some(sync_cfg) = &state.sync_config {
+        let backup_path = state.repo.backup_file_path(&rolled);
+        let collection_bytes = std::fs::read(&backup_path).map_err(|e| {
+            tracing::error!(error = %e, ?backup_path, "failed to read backup file for upload");
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+        anki_backup_sync::upload_collection(sync_cfg, &collection_bytes)
+            .await
+            .map_err(|e| {
+                tracing::error!(error = %e, "failed to upload rolled-back collection to AnkiWeb");
+                StatusCode::BAD_GATEWAY
+            })?;
+        tracing::info!(backup_id = %rolled.id, "uploaded rolled-back collection to AnkiWeb");
+    } else {
+        tracing::warn!("no AnkiWeb credentials configured; rollback is local-only");
+    }
+
     *gate = Some(Utc::now());
-    Ok(Json(serde_json::json!({"rolled_back_to": rolled.id})))
+    Ok(Json(serde_json::json!({"rolled_back_to": rolled.id, "uploaded": state.sync_config.is_some()})))
 }
 
 async fn download_backup(
