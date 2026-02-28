@@ -57,6 +57,7 @@ async fn start_server(
         rollback_gate: Arc::new(Mutex::new(None)),
         csrf_token,
         api_token,
+        sync_config: None,
     };
     let app = build_router(state);
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
