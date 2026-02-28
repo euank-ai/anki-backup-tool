@@ -55,9 +55,19 @@
   {% if backup.status == "created" %}
   <div class="actions">
     <a class="btn btn-primary" href="/backups/{{ backup.id }}/download">Download</a>
-    <form method="post" action="/backups/{{ backup.id }}/rollback" style="display:inline">
-      <button class="btn btn-danger" type="submit" onclick="return confirm('Rollback to this backup?')">Rollback</button>
-    </form>
+    <button class="btn btn-danger" type="button" onclick="doRollback()">Rollback</button>
+    <script>
+    function doRollback() {
+      if (!confirm('Rollback to this backup?')) return;
+      fetch('/backups/{{ backup.id }}/rollback', {
+        method: 'POST',
+        headers: { 'x-csrf-token': '{{ csrf_token }}' }
+      }).then(r => {
+        if (r.ok) { alert('Rollback successful'); location.reload(); }
+        else { r.text().then(t => alert('Rollback failed: ' + r.status + ' ' + t)); }
+      }).catch(e => alert('Error: ' + e));
+    }
+    </script>
   </div>
   {% endif %}
 </body>

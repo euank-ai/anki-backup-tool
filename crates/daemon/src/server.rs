@@ -54,6 +54,7 @@ struct IndexTemplate {
 #[template(path = "detail.html")]
 struct DetailTemplate {
     backup: BackupDetailView,
+    csrf_token: String,
 }
 
 fn format_size(bytes: i64) -> String {
@@ -288,5 +289,6 @@ async fn backup_detail(
             size_display: format_size(b.size_bytes),
             deck_stats,
         },
+        csrf_token: state.csrf_token.clone().unwrap_or_default(),
     })
 }
